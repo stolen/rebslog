@@ -1,0 +1,12 @@
+{application, rebslog,
+ [
+  {description, "Replayable Binary Stream Log"},
+  {vsn, "0.0.1"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {env, []},
+  {modules, [rebslog, rebslog_codec]}
+ ]}.

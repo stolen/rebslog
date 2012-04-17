@@ -1,0 +1,33 @@
+Rebslog-format DEFINITIONS AUTOMATIC TAGS ::=
+BEGIN
+
+-- Protocol packet --
+Rebs-packet ::= CHOICE {
+    timestamp Timestamp-packet,
+    data-in  Data-in-packet,
+    data-out Data-out-packet
+}
+
+-- Timestamp packet --
+-- Used for stream synchronization --
+Timestamp-packet ::= CHOICE {
+    absolute Absolute-timestamp,
+    relative Relative-timestamp }
+
+Absolute-timestamp ::= INTEGER -- UNIX time --
+Relative-timestamp ::= INTEGER (0..255) -- Seconds since last timestamp, to save some bytes --
+
+
+-- Data packet --
+-- Includes precise time since previous packet, direction flag and data itself --
+Data-in-packet ::= SEQUENCE {
+    timestamp Sequential-timestamp,
+    data Raw-data }
+Data-out-packet ::= SEQUENCE {
+    timestamp Sequential-timestamp,
+    data Raw-data }
+
+Sequential-timestamp ::= INTEGER (0..1000) -- milliseconds since previous packet --
+Raw-data ::= BIT STRING
+
+END
