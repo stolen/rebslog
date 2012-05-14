@@ -4,8 +4,9 @@ BEGIN
 -- Protocol packet --
 Rebs-packet ::= CHOICE {
     timestamp Timestamp-packet,
-    data-in  Data-in-packet,
-    data-out Data-out-packet
+    data-in  Data-packet,
+    data-out Data-packet,
+    term     Data-packet
 }
 
 -- Timestamp packet --
@@ -20,10 +21,7 @@ Relative-timestamp ::= INTEGER (0..255) -- Seconds since last timestamp, to save
 
 -- Data packet --
 -- Includes precise time since previous packet, direction flag and data itself --
-Data-in-packet ::= SEQUENCE {
-    timestamp Sequential-timestamp,
-    data Raw-data }
-Data-out-packet ::= SEQUENCE {
+Data-packet ::= SEQUENCE {
     timestamp Sequential-timestamp,
     data Raw-data }
 

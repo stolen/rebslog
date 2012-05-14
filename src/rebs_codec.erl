@@ -1,5 +1,6 @@
 -module(rebs_codec).
 -export([encoder/0, encoder/3]).
+-export([decoder/0, decoder/2]).
 -compile(inline).
 -include("Rebslog-format.hrl").
 
@@ -35,13 +36,17 @@ rel_ts_bin_packet(Diff_s) ->
 
 % Generate binary data packet
 data_bin_packet(MilliSecDiff, in, Data) when is_binary(Data) ->
-    binary_encode('Rebs-packet', {'data-in', #'Data-in-packet'{
+    binary_encode('Rebs-packet', {'data-in', #'Data-packet'{
             timestamp = MilliSecDiff,
             data = {0, Data} }});
 data_bin_packet(MilliSecDiff, out, Data) when is_binary(Data) ->
-    binary_encode('Rebs-packet', {'data-out', #'Data-out-packet'{
+    binary_encode('Rebs-packet', {'data-out', #'Data-packet'{
             timestamp = MilliSecDiff,
             data = {0, Data} }});
+data_bin_packet(MilliSecDiff, term, Data) ->
+    binary_encode('Rebs-packet', {'term', #'Data-packet'{
+            timestamp = MilliSecDiff,
+            data = {0, term_to_binary(Data)} }});
 
 data_bin_packet(MilliSecDiff, Direction, Data) when is_list(Data) ->
     data_bin_packet(MilliSecDiff, Direction, iolist_to_binary(Data)).
@@ -60,9 +65,9 @@ encoder(State, Data, Direction) ->
     Now = erlang:now(),
 
     {TS_State, TimestampBin} = timestamp_if_needed(State, Now),
-    io:format("TimestampBin = ~p~n", [TimestampBin]),
+    %io:format("TimestampBin = ~p~n", [TimestampBin]),
     {NewState, DataPacketBin} = gen_bin_data_packet(TS_State, Data, Direction, Now),
-    io:format("DataPacketBin = ~p~n", [DataPacketBin]),
+    %io:format("DataPacketBin = ~p~n", [DataPacketBin]),
 
     %{<<TimestampBin/binary, DataPacketBin/binary>>, make_encoder(NewState)}.
     {[TimestampBin, DataPacketBin], make_encoder(NewState)}.
@@ -106,3 +111,38 @@ gen_bin_data_packet(State, Data, Direction, _Now = {_, _, MicroSec}) ->
     NextState = State#encoder_state{last_ms = MilliSec},
 
     {NextState, DataPktBin}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%  Decoder
+
+
+decoder() ->
+    make_decoder(<<>>).
+
+make_decoder(BinHead) ->
+    fun(BinTail) ->
+            ?MODULE:decoder(BinHead, BinTail)
+    end.
+
+decoder(BinHead, BinTail) ->
+    Buffer = <<BinHead/binary, BinTail/binary>>,
+    {Packets, NewBuffer} = decode_all_packets(Buffer, []),
+    {Packets, make_decoder(NewBuffer)}.
+
+decode_all_packets(Buffer, RevPackets) ->
+    case 'Rebslog-format':decode('Rebs-packet', Buffer) of
+        {ok, Packet, Tail} ->
+            decode_all_packets(Tail, [filter_packet(Packet)|RevPackets]);
+        {error,{asn1,{{badmatch,_}, _}}} ->
+            {lists:reverse(RevPackets), Buffer}
+    end.
+
+filter_packet({'data-in',{_,MilliSecDiff,{0,Data}}}) ->
+    {MilliSecDiff, in, Data};
+filter_packet({'data-out',{_,MilliSecDiff,{0,Data}}}) ->
+    {MilliSecDiff, out, Data};
+filter_packet({'term',{_,MilliSecDiff,{0,Data}}}) ->
+    {MilliSecDiff, term, binary_to_term(Data)};
+filter_packet({timestamp,{Type,Value}}) ->
+    {timestamp, Type, Value}.
+
