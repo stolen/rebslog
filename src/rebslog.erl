@@ -25,6 +25,8 @@
     }).
 
 % Utility to convert any term to atom
+atomize(Atom) when is_atom(Atom) ->
+    Atom;
 atomize(Term) ->
     Printed = io_lib:print(Term),
     Flattened = lists:flatten(Printed),
