@@ -133,7 +133,7 @@ decode_all_packets(Buffer, RevPackets) ->
     case 'Rebslog-format':decode('Rebs-packet', Buffer) of
         {ok, Packet, Tail} ->
             decode_all_packets(Tail, [filter_packet(Packet)|RevPackets]);
-        {error,{asn1,{{badmatch,_}, _}}} ->
+        {error,{asn1,{{_,_}, _}}} ->
             {lists:reverse(RevPackets), Buffer}
     end.
 
