@@ -1,7 +1,27 @@
+%% Rebslog - replayable binary stream log
+%
+% Usage:
+%       start(Name) to start daemon
+%       record_file(Daemon, File) to start recording
+%       replay_file(Daemon, File, Acceptor) to start realtime replay
+%       finish(Daemon) to stop
+%
+%       fold_file(Fun, Acc0, File) to iterate over entries in file
+%               Fun = fun(Time, Message, AccIn) -> AccOut
+%               Time = erlang:now()
+%               File = filename:name()
+%
+% generic unpack example:
+%   rebslog:fold_file(fun(Time, Msg, Acc) ->
+%           io:format("~w -> ~w~n", [Time, Msg]),
+%           Acc + 1
+%       end, 0, "/home/stolen/input.rebs")
+%
+
 -module(rebslog).
 
 -export([start/1, start_link/1, stop/1]).
--export([record/3, record_file/2, replay/4, replay_file/3, finish/1]).
+-export([record/3, record_file/2, replay/4, replay_file/3, finish/1, fold_file/3]).
 -export([log/2, log_in/2, log_out/2]).
 
 -define(READ_CHUNK_SIZE, 2048).
@@ -12,6 +32,16 @@
         closer = fun(_) -> ok end   :: fun((file:io_device()) -> ok),
         acceptor = undefined        :: pid(),
         default_direction = out     :: in | out
+    }).
+
+-record(fold_state, {
+        input,
+        decoder,
+        lastabs,
+        lastsec,
+        lastms,
+        function,
+        acc
     }).
 
 -record(rtworker_state, {
@@ -118,6 +148,72 @@ log_data(State, Direction, Data) ->
 
     State#rebslog_state{encoder = NextEncoder}.
 
+% Fold over entries in specified file
+fold_file(Function, Acc0, File) ->
+    {ok, F} = file:open(File, [read, raw, binary]),
+    Decoder = rebs_codec:decoder(),
+    State = #fold_state {
+        input = F,
+        decoder = Decoder,
+        function = Function,
+        acc = Acc0
+    },
+    FinalState = do_fold_file(State),
+    ok = file:close(F),
+
+    FinalState#fold_state.acc.
+
+do_fold_file(State = #fold_state{input=File}) ->
+    case file:read(File, 1024*1024) of
+        eof ->
+            State;
+        {ok, Data} ->
+            PFState = fold_process_chunk(State, Data),
+            do_fold_file(PFState)
+    end.
+
+
+fold_process_chunk(State = #fold_state {decoder = Decoder}, Data) ->
+    {Packets, NextDec} = Decoder(Data),
+    PFState = fold_process_packets(State, Packets),
+
+    PFState#fold_state {decoder = NextDec}.
+
+fold_process_packets(State, []) ->
+    State;
+fold_process_packets(State, [Packet | MorePackets]) ->
+    PPState = fold_packet(State, Packet),
+    fold_process_packets(PPState, MorePackets).
+
+fold_packet(State, {timestamp, absolute, Time}) ->
+    State#fold_state{
+        lastabs = Time,
+        lastsec = Time,
+        lastms = 0 };
+
+fold_packet(State = #fold_state{lastabs = Time}, {timestamp, relative, Diff}) ->
+    State#fold_state{
+        lastsec = Time + Diff,
+        lastms = 0 };
+
+fold_packet(State, {MilliSecDiff, term, Message}) ->
+    #fold_state {
+        function = Function,
+        acc = Acc,
+        lastsec = Sec,
+        lastms = MilliSec } = State,
+
+    CurSec = Sec + ((MilliSec + MilliSecDiff) div 1000),
+    CurMilliSec = (MilliSec + MilliSecDiff) rem 1000,
+
+    CurNow = {CurSec div 1000000, CurSec rem 1000000, CurMilliSec * 1000},
+
+    NextAcc = Function(CurNow, Message, Acc),
+
+    State#fold_state {
+        acc = NextAcc,
+        lastsec = CurSec,
+        lastms = CurMilliSec }.
 
 % Replay routine. Initialization
 replay_init(State = #rebslog_state{acceptor = Acceptor}) ->
