@@ -233,14 +233,15 @@ reader_iterate(State = #fold_state{acc = [BufHead | BufTail]}) ->
             acc = undefined
         }, BufHead),
 
+    % Change accumulator for next call
     NextState = PFState#fold_state{acc = BufTail},
 
     case PFState#fold_state.acc of
         undefined ->
-            % It was not data packet, so try more...
+            % It was not data packet, so try one more time...
             reader_iterate(NextState);
         Entry = {_Time, _Message} ->
-            % OK, return found entry and next my call
+            % OK, return found entry and next functor
             {Entry,
                 fun() -> reader_iterate(NextState) end}
     end;
@@ -248,9 +249,11 @@ reader_iterate(State = #fold_state{acc = [BufHead | BufTail]}) ->
 reader_iterate(State = #fold_state{input = File, decoder = Decoder, acc = []}) ->
     case file:read(File, 1024*1024) of
         eof ->
+            % Oops! This is the end.
             file:close(File),
             eof;
         {ok, Data} ->
+            % Got data! Decode and re-run self with read packets
             {Buffer, NextDec} = Decoder(Data),
             reader_iterate(State#fold_state{
                     acc = Buffer,
