@@ -21,7 +21,7 @@
 -module(rebslog).
 
 -export([start/1, start_link/1, stop/1]).
--export([record/3, record_file/2, replay/4, replay_file/3, finish/1, fold_file/3]).
+-export([record/3, record_file/2, replay/4, replay_file/3, finish/1, fold_file/3, reader/1]).
 -export([log/2, log_in/2, log_out/2]).
 
 -define(READ_CHUNK_SIZE, 2048).
@@ -214,6 +214,49 @@ fold_packet(State, {MilliSecDiff, term, Message}) ->
         acc = NextAcc,
         lastsec = CurSec,
         lastms = CurMilliSec }.
+
+reader(FileName) ->
+    {ok, F} = file:open(FileName, [read, raw, binary]),
+    State0 = #fold_state{
+        input = F,
+        decoder = rebs_codec:decoder(),
+        acc = []
+    },
+    fun() -> reader_iterate(State0) end.
+
+
+% Accumulated buffer is not empty, take first entry
+reader_iterate(State = #fold_state{acc = [BufHead | BufTail]}) ->
+    PFState = fold_packet(State#fold_state{
+            % Output entry to accumulator, so we can take it and return to user
+            function = fun(Time, Message, _) -> {Time, Message} end,
+            acc = undefined
+        }, BufHead),
+
+    NextState = PFState#fold_state{acc = BufTail},
+
+    case PFState#fold_state.acc of
+        undefined ->
+            % It was not data packet, so try more...
+            reader_iterate(NextState);
+        Entry = {_Time, _Message} ->
+            % OK, return found entry and next my call
+            {Entry,
+                fun() -> reader_iterate(NextState) end}
+    end;
+
+reader_iterate(State = #fold_state{input = File, decoder = Decoder, acc = []}) ->
+    case file:read(File, 1024*1024) of
+        eof ->
+            file:close(File),
+            eof;
+        {ok, Data} ->
+            {Buffer, NextDec} = Decoder(Data),
+            reader_iterate(State#fold_state{
+                    acc = Buffer,
+                    decoder = NextDec})
+    end.
+
 
 % Replay routine. Initialization
 replay_init(State = #rebslog_state{acceptor = Acceptor}) ->
