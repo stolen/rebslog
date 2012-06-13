@@ -63,23 +63,31 @@ atomize(Term) ->
     Flattened = lists:flatten(Printed),
     erlang:list_to_atom(Flattened).
 
-% Startup functions
-start(NoID) when NoID == undefined; NoID == none ->
-    {ok, spawn(fun idle_loop/0)};
-start(ID) ->
+% Fail if requested name is busy
+ensure_not_registered(NoID) when NoID == undefined; NoID == none ->
+    ok;
+ensure_not_registered(ID) ->
     RegName = atomize(ID),
     undefined = whereis(RegName),
+    ok.
+
+register_if_needed(NoID, _Pid) when NoID == undefined; NoID == none ->
+    ok;
+register_if_needed(ID, Pid) ->
+    RegName = atomize(ID),
+    register(RegName, Pid).
+
+% Startup functions
+start(ID) ->
+    ensure_not_registered(ID),
     Pid = spawn(fun idle_loop/0),
-    register(RegName, Pid),
+    register_if_needed(ID, Pid),
     {ok, Pid}.
 
-start_link(NoID) when NoID == undefined; NoID == none ->
-    {ok, spawn_link(fun idle_loop/0)};
 start_link(ID) ->
-    RegName = atomize(ID),
-    undefined = whereis(RegName),
+    ensure_not_registered(ID),
     Pid = spawn_link(fun idle_loop/0),
-    register(RegName, Pid),
+    register_if_needed(ID, Pid),
     {ok, Pid}.
 
 
