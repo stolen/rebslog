@@ -21,7 +21,8 @@
 -module(rebslog).
 
 -export([start/1, start_link/1, stop/1]).
--export([record/3, record_file/2, replay/4, replay_file/3, finish/1, fold_file/3, reader/1]).
+-export([record/3, record_file/2, replay/4, replay_file/3, finish/1]).
+-export([start_recorder/2, start_link_recorder/2, fold_file/3, reader/1]).
 -export([log/2, log_in/2, log_out/2]).
 
 -define(READ_CHUNK_SIZE, 2048).
@@ -119,6 +120,32 @@ idle_loop(State) ->
             ok
     end.
 
+
+% Start recorder with specified name that writes log to specifed file
+-spec rebslog:start_recorder(RegName::term(), FileName::filename:name()) -> {ok, pid()}.
+start_recorder(RegName, FileName) ->
+    Pid = spawn_recorder(RegName, FileName),
+    {ok, Pid}.
+
+% Same as start_recorder but also create link to new process
+-spec rebslog:start_link_recorder(RegName::term(), FileName::filename:name()) -> {ok, pid()}.
+start_link_recorder(RegName, FileName) ->
+    Pid = spawn_recorder(RegName, FileName),
+    true = link(Pid),
+    {ok, Pid}.
+
+spawn_recorder(RegName, FileName) ->
+    {ok, File} = file:open(FileName, [write, raw]),
+    State0 = #rebslog_state{
+        encoder = rebs_codec:encoder(),
+        device = File,
+        closer = fun(D) -> ok = file:close(D), exit(normal) end },
+
+    Pid = erlang:spawn(fun() -> record_loop(State0) end),
+    true = erlang:register(RegName, Pid),
+    Pid.
+
+
 record_loop(State) ->
     receive
         % Direction :: in | out
@@ -132,6 +159,7 @@ record_loop(State) ->
             ok = (State#rebslog_state.closer)(State#rebslog_state.device),
             idle_loop(State);
         stop ->
+            ok = (State#rebslog_state.closer)(State#rebslog_state.device),
             ok
     end.
 
