@@ -132,27 +132,26 @@ idle_loop(State) ->
 % Start recorder with specified name that writes log to specifed file
 -spec rebslog:start_recorder(RegName::term(), FileName::filename:name()) -> {ok, pid()}.
 start_recorder(RegName, FileName) ->
-    Pid = spawn_recorder(RegName, FileName),
-    {ok, Pid}.
+    do_start_recorder(RegName, FileName, spawn).
 
 % Same as start_recorder but also create link to new process
 -spec rebslog:start_link_recorder(RegName::term(), FileName::filename:name()) -> {ok, pid()}.
 start_link_recorder(RegName, FileName) ->
-    Pid = spawn_recorder(RegName, FileName),
-    true = link(Pid),
+    do_start_recorder(RegName, FileName, spawn_link).
+
+do_start_recorder(ID, FileName, SpawnType) ->
+    ensure_not_registered(ID),
+    Pid = erlang:SpawnType(fun() -> record_init(FileName) end),
+    register_if_needed(ID, Pid),
     {ok, Pid}.
 
-spawn_recorder(RegName, FileName) ->
+record_init(FileName) ->
     {ok, File} = file:open(FileName, [write, raw]),
     State0 = #rebslog_state{
         encoder = rebs_codec:encoder(),
         device = File,
         closer = fun(D) -> ok = file:close(D), exit(normal) end },
-
-    Pid = erlang:spawn(fun() -> record_loop(State0) end),
-    true = erlang:register(RegName, Pid),
-    Pid.
-
+    record_loop(State0).
 
 record_loop(State) ->
     receive
